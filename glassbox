@@ -1,0 +1,56 @@
+#!/bin/bash
+# glassbox — CLI for managing glassBox settings
+GLASSBOX_DIR="${GLASSBOX_DIR:-${HOME}/.glassbox}"
+LEARNED_FILE="${GLASSBOX_DIR}/learned"
+CACHE_DIR="${GLASSBOX_DIR}/cache"
+
+case "${1:-help}" in
+    learn)
+        [ -z "${2:-}" ] && echo "Usage: glassbox learn <tool>" && exit 1
+        mkdir -p "$GLASSBOX_DIR"
+        echo "$2" >> "$LEARNED_FILE"
+        echo "Learned: $2 — will show brief only."
+        ;;
+    unlearn)
+        [ -z "${2:-}" ] && echo "Usage: glassbox unlearn <tool>" && exit 1
+        if [ -f "$LEARNED_FILE" ]; then
+            tmp="${LEARNED_FILE}.tmp"
+            grep -vFx "$2" "$LEARNED_FILE" > "$tmp" 2>/dev/null || true
+            mv "$tmp" "$LEARNED_FILE"
+            echo "Unlearned: $2 — will show full explanations again."
+        else
+            echo "Nothing learned yet."
+        fi
+        ;;
+    learned)
+        if [ -f "$LEARNED_FILE" ] && [ -s "$LEARNED_FILE" ]; then
+            echo "Learned tools (brief only):"
+            while IFS= read -r line; do
+                echo "  - $line"
+            done < "$LEARNED_FILE"
+        else
+            echo "No tools learned yet. Use 'glassbox learn <tool>' to dismiss."
+        fi
+        ;;
+    clear-cache)
+        if [ -d "$CACHE_DIR" ]; then
+            count=$(find "$CACHE_DIR" -type f | wc -l | tr -d ' ')
+            rm -rf "$CACHE_DIR"
+            echo "Cleared $count cached explanations."
+        else
+            echo "Cache is empty."
+        fi
+        ;;
+    help|*)
+        echo "glassBox — transparency for Claude Code"
+        echo ""
+        echo "Commands:"
+        echo "  learn <tool>     Dismiss a tool (show brief only)"
+        echo "  unlearn <tool>   Re-enable full explanations"
+        echo "  learned          List dismissed tools"
+        echo "  clear-cache      Clear explanation cache"
+        echo ""
+        echo "Tools: Read, Write, Edit, Grep, Glob, Bash, Agent"
+        echo "Bash commands: Bash:git, Bash:npm, Bash:python, etc."
+        ;;
+esac
