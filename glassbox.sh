@@ -343,17 +343,39 @@ ${EXTENDED}" || true
     fi
 fi
 
-# Output to stderr
+# Build output
 if [ -n "$BRIEF" ]; then
-    # Header: tool name + brief
-    echo "  ◆ ${TOOL_NAME}  ${BRIEF}" >&2
+    # ANSI styling — survives jq JSON encoding; all modern terminals support it.
+    # \033[1m bold, \033[2m dim, \033[38;5;214m amber, \033[38;5;245m gray, \033[0m reset.
+    BOLD=$'\033[1m'
+    AMBER=$'\033[38;5;214m'
+    BODYCOL=$'\033[38;5;39m'
+    RESET=$'\033[0m'
 
-    # Extended explanation (skip if tool is learned)
+    WIDTH=68
+    # Top rule + bold/amber brief headline
+    TOP="${AMBER}┌─ glassBox ─────────────────────────────────────────────────────────┐${RESET}"
+    HEAD="${AMBER}│${RESET} ${BOLD}◆ ${TOOL_NAME}${RESET}  ${BOLD}${BRIEF}${RESET}"
+    BOT="${AMBER}└────────────────────────────────────────────────────────────────────┘${RESET}"
+
+    MESSAGE="${TOP}
+${HEAD}"
+
+    # Add extended explanation as dim gray body (unless tool is learned)
     if [ -n "$EXTENDED" ] && ! is_learned "$NORMALIZED"; then
-        echo "$EXTENDED" | fmt -w 72 | while IFS= read -r line; do
-            echo "    $line" >&2
-        done
+        BODY=$(echo "$EXTENDED" | fmt -w "$WIDTH" | sed "s/^/${AMBER}│${RESET}   ${BODYCOL}/; s/$/${RESET}/")
+        MESSAGE="${MESSAGE}
+${AMBER}│${RESET}
+${BODY}"
     fi
+
+    MESSAGE="${MESSAGE}
+${BOT}"
+
+    # Return as systemMessage — Claude Code displays this to the user.
+    # IMPORTANT: do NOT add hookSpecificOutput.permissionDecision: it suppresses display.
+    jq -n --arg msg "$MESSAGE" '{ systemMessage: $msg }'
 fi
 
 exit 0
+
