@@ -4,6 +4,7 @@ set -euo pipefail
 GLASSBOX_DIR="${GLASSBOX_DIR:-${HOME}/.glassbox}"
 CACHE_DIR="${CACHE_DIR:-${GLASSBOX_DIR}/cache}"
 LEARNED_FILE="${LEARNED_FILE:-${GLASSBOX_DIR}/learned}"
+SESSIONS_DIR="${SESSIONS_DIR:-${GLASSBOX_DIR}/sessions}"
 
 # === Functions ===
 
@@ -225,6 +226,26 @@ cache_store() {
 # Purge cache entries older than 30 days.
 cache_cleanup() {
     [ -d "$CACHE_DIR" ] && find "$CACHE_DIR" -type f -mtime +30 -delete 2>/dev/null
+    [ -d "$SESSIONS_DIR" ] && find "$SESSIONS_DIR" -type f -mtime +7 -delete 2>/dev/null
+}
+
+# Check whether KEY has already been emitted in SESSION_ID this session.
+session_seen() {
+    local session_id="$1"
+    local key="$2"
+    [ -z "$session_id" ] || [ -z "$key" ] && return 1
+    local file="${SESSIONS_DIR}/${session_id}"
+    [ -f "$file" ] || return 1
+    grep -qFx "$key" "$file" 2>/dev/null
+}
+
+# Record that KEY has been emitted in SESSION_ID.
+session_record() {
+    local session_id="$1"
+    local key="$2"
+    [ -z "$session_id" ] || [ -z "$key" ] && return 0
+    mkdir -p "$SESSIONS_DIR" 2>/dev/null || true
+    echo "$key" >> "${SESSIONS_DIR}/${session_id}"
 }
 
 # Build the LLM prompt for generating an explanation
@@ -290,6 +311,8 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name' 2>/dev/null) || exit 0
 [ -z "$TOOL_NAME" ] || [ "$TOOL_NAME" = "null" ] && exit 0
 
 TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // empty' 2>/dev/null) || exit 0
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || SESSION_ID=""
+[ "$SESSION_ID" = "null" ] && SESSION_ID=""
 
 # --parse-only mode for testing
 if [ "${1:-}" = "--parse-only" ]; then
@@ -314,6 +337,11 @@ cache_cleanup &
 # Normalize input for cache key
 NORMALIZED=$(normalize "$TOOL_NAME" "$TOOL_INPUT") || NORMALIZED=""
 KEY=$(cache_key "$NORMALIZED") || KEY=""
+
+# Suppress repeats within the same session
+if session_seen "$SESSION_ID" "$KEY"; then
+    exit 0
+fi
 
 # Check cache
 CACHED=""
@@ -375,6 +403,10 @@ ${BOT}"
     # Return as systemMessage — Claude Code displays this to the user.
     # IMPORTANT: do NOT add hookSpecificOutput.permissionDecision: it suppresses display.
     jq -n --arg msg "$MESSAGE" '{ systemMessage: $msg }'
+
+    # Record this key as seen in the current session so subsequent identical
+    # calls within the same session are suppressed.
+    session_record "$SESSION_ID" "$KEY"
 fi
 
 exit 0
